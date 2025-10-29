@@ -1,0 +1,2 @@
+https://www.geeksforgeeks.org/machine-learning/stratified-k-fold-cross-validation/
+
