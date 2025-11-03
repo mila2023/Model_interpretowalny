@@ -1,3 +1,7 @@
 https://www.geeksforgeeks.org/machine-learning/stratified-k-fold-cross-validation/
 https://scikit-learn.org/stable/modules/generated/sklearn.impute.SimpleImputer.html
 https://stackoverflow.com/questions/29294983/how-to-calculate-correlation-between-all-columns-and-remove-highly-correlated-on
+https://docs.tibco.com/data-science/GUID-44739B00-E85F-4CE7-8404-24F9B775ADE8.html#:~:text=The%20purpose%20of%20the%20Weight,Weight%2Dof%2DEvidence%20value.
+https://www.listendata.com/2015/03/weight-of-evidence-woe-and-information.html
+
+
