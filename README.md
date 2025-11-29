@@ -13,11 +13,13 @@
 
 ## Logistic Regression Model:
 * zbiór_10.csv - data to analyse
-* TU WPISUJ
+* analiza_regresji.ipynb - logistic regression model report in Jupyter
+* best_regression_model.plk - logistic regression model chosen for further analysis
+* wyniki_analizy.joblib - dictionary containing selected test cases, their indices, and computed SHAP values
 
 -> to run: (usage: $ .\run_Regression.ps1)
 * run_Regression.ps1 - file that runs the Logistic Regression model
-* run_Regression_analysis.py - raw code from "----------tu---też-----wpisuj--------------" without Jupyter markdown
+* run_Regression_analysis.py - raw code from "analiza_regresji.ipynb" without Jupyter markdown
 * requirements.txt - file specifying the project's dependencies for both XGBoost and LR
 
 -> bibliography.txt - materials used during project
