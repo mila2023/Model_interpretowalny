@@ -13,8 +13,7 @@
 
 ## Logistic Regression Model:
 * zbiór_10.csv - data to analyse
-------- - tu wpisuj
--------
+* TU WPISUJ
 
 -> to run: (usage: $ .\run_Regression.ps1)
 * run_Regression.ps1 - file that runs the Logistic Regression model
