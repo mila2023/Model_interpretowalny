@@ -1,5 +1,7 @@
 # Model_interpretowalny
 
+* Presentation.pdf - prezentacja wyników
+
 ## XGBoost Model:
 * zbiór_10.csv - data to analyse
 * XGBoost_model.ipynb - XGBoost model report in Jupyter
