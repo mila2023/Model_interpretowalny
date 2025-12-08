@@ -1,4 +1,3 @@
-
 import pandas as pd
 import numpy as np
 import xgboost as xgb
@@ -9,7 +8,7 @@ import joblib
 import random
 
 from sklearn.calibration import calibration_curve
-from sklearn import metrics, set_config
+from sklearn import metrics
 from sklearn.metrics import brier_score_loss, accuracy_score, classification_report, confusion_matrix, precision_recall_curve
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
@@ -20,8 +19,6 @@ from sklearn.impute import SimpleImputer
 from sklearn.isotonic import IsotonicRegression
 from sklearn.linear_model import LogisticRegression
 
-
-set_config(transform_output="pandas")
 shap.initjs()
 
 class PKDKodWoEEncoder(BaseEstimator, TransformerMixin):
@@ -75,7 +72,6 @@ class DropConstantColumns(BaseEstimator, TransformerMixin):
              raise ValueError("input_features nie może być None dla DropConstantColumns")
         return [col for col in input_features if col not in self.cols_to_drop_]
 
-
 class MissingValueIndicatorAndImputer(BaseEstimator, TransformerMixin):
     def __init__(self, strategy="median"):
         self.strategy = strategy
@@ -113,8 +109,6 @@ class MissingValueIndicatorAndImputer(BaseEstimator, TransformerMixin):
             indicator_cols = self.indicator_cols_
             return base_cols + indicator_cols
 
-
-# Wczytanie danych
 data = pd.read_csv("zbiór_10.csv")
 
 # Definicja cech X i y
@@ -125,7 +119,6 @@ X_temp, X_test, y_temp, y_test = train_test_split(X, y, test_size=0.15, random_s
 X_train, X_val, y_train, y_val = train_test_split(X_temp, y_temp, test_size=0.18, random_state=42)
 
 print(f"Train: {X_train.shape[0]}, Val: {X_val.shape[0]}, Test: {X_test.shape[0]}")
-
 
 print("Fitting WoE Encoder...")
 woe_encoder = PKDKodWoEEncoder(top_n=10, smoothing=0.5)
@@ -167,62 +160,6 @@ preprocessor = ColumnTransformer(
     remainder='passthrough'
 )
 
-print("Rozpoczynam automatyczne wyznaczanie constraints...")
-
-preprocessor.fit(X_train_woe, y_train)
-
-feature_names = preprocessor.get_feature_names_out()
-print(f"Pobrano {len(feature_names)} finalnych nazw cech po preprocesingu.")
-
-X_train_transformed = preprocessor.transform(X_train_woe)
-X_train_trans_df = pd.DataFrame(
-    X_train_transformed, 
-    columns=feature_names, 
-    index=X_train.index
-)
-
-correlations = X_train_trans_df.corrwith(y_train, method='spearman')
-
-initial_constraints = {}
-known_categorical_cols = categorical_features 
-
-print("\nAnaliza cech pod kątem monotoniczności:")
-
-for col_name, corr_value in correlations.items():
-    
-    is_categorical = False
-    
-    if col_name.startswith('cat__'):
-        is_categorical = True
-        
-    if not is_categorical:
-        for original_cat in known_categorical_cols:
-            if original_cat in col_name:
-                is_categorical = True
-                break
-    
-    if is_categorical:
-        initial_constraints[col_name] = 0
-    else:
-        if corr_value > 0:
-            initial_constraints[col_name] = 1   # Rosnąca (im więcej tym gorzej)
-        elif corr_value < 0:
-            initial_constraints[col_name] = -1  # Malejąca (im więcej tym lepiej)
-        else:
-            initial_constraints[col_name] = 0   # Brak korelacji
-
-final_constraints = {}
-for name in feature_names:
-    if name in initial_constraints:
-        final_constraints[name] = initial_constraints[name]
-    else:
-        final_constraints[name] = 0 
-        
-constraints = {k: v for k, v in initial_constraints.items() if k in feature_names}
-
-
-print(f"Wygenerowano ograniczenia dla {len(initial_constraints)} cech, po filtracji pozostawiono {len(constraints)}.")
-
 xgb_model = xgb.XGBClassifier(
     objective='binary:logistic',
     n_estimators=1000,
@@ -230,8 +167,7 @@ xgb_model = xgb.XGBClassifier(
     eval_metric='auc',
     early_stopping_rounds=50,
     random_state=42,
-    # scale_pos_weight = (y_train == 0).sum() / (y_train == 1).sum(),
-    monotone_constraints=constraints
+    scale_pos_weight = (y_train == 0).sum() / (y_train == 1).sum() 
 )
 
 pipeline = Pipeline(steps=[
@@ -239,55 +175,19 @@ pipeline = Pipeline(steps=[
     ('model', xgb_model)
 ])
 
-# # X_val_processed = pipeline['preprocessor'].fit(X_train_woe).transform(X_val_woe)
-
-# # fit_params = {
-# #     'model__eval_set': [(X_val_processed, y_val)],
-# #     'model__verbose' : 100
-# # }
-
-
-# fit_params = {
-#     'model__eval_set': [(X_val_woe, y_val)],
-#     'model__verbose' : 100
-# }
-
-# pipeline.fit(X_train_woe, y_train, **fit_params)
-
-# joblib.dump(pipeline, 'XGBoost_model_pipeline.pkl')
-
-# print("Pipeline training complete.")
-# print("Model was successfully exported to file 'XGBoost_model_pipeline.pkl'.")
-
-
-# NOWA WERSJA ------------------------------------------------------------------------------------------------
-
-
-print("Przygotowanie zbioru walidacyjnego dla XGBoost...")
-
-X_val_transformed_np = preprocessor.transform(X_val_woe)
-
-feature_names = preprocessor.get_feature_names_out()
-
-X_val_processed_df = pd.DataFrame(
-    X_val_transformed_np, 
-    columns=feature_names, 
-    index=X_val_woe.index
-)
+X_val_processed = pipeline['preprocessor'].fit(X_train_woe).transform(X_val_woe)
 
 fit_params = {
-    'model__eval_set': [(X_val_processed_df, y_val)],
-    'model__verbose': 100
+    'model__eval_set': [(X_val_processed, y_val)],
+    'model__verbose' : 100
 }
 
-print("Rozpoczynam trening modelu...")
 pipeline.fit(X_train_woe, y_train, **fit_params)
 
 joblib.dump(pipeline, 'XGBoost_model_pipeline.pkl')
 
 print("Pipeline training complete.")
 print("Model was successfully exported to file 'XGBoost_model_pipeline.pkl'.")
-
 
 preprocessor = pipeline.named_steps['preprocessor']
 model = pipeline.named_steps['model']
@@ -339,11 +239,9 @@ if abs((baseline + shap_sum) - raw_prediction) < 1e-5:
 else:
     print("\nWeryfikacja: Wyjaśnienia NIE są spójne z modelem.")
 
-
 print("Globalna ważność cech (Beeswarm):")
 
 shap.summary_plot(shap_values, X_test_transformed_df)
-
 
 CECHA = 'num__wsk_poziom_kapitalu_obrotowego_netto'
 
@@ -355,7 +253,6 @@ shap.dependence_plot(
     X_test_transformed_df,
     interaction_index="auto"
 )
-
 
 CECHA = 'num__Kapital_wlasny'
 
@@ -403,12 +300,7 @@ shap.dependence_plot(
 
 y_proba = pipeline.predict_proba(X_test_woe)[:, 1]
 
-# -----------------------
-
 precision, recall, thresholds = precision_recall_curve(y_test, y_proba, pos_label=1)
-
-# -----------------------
-
 
 plt.figure(figsize=(8, 6))
 plt.plot(thresholds, precision[:-1], label='Precision')
@@ -419,8 +311,6 @@ plt.title('Precision & Recall vs. Threshold')
 plt.legend()
 plt.grid()
 plt.show()
-
-# -----------------------
 
 f1_scores = (2 * precision[:-1] * recall[:-1]) / (precision[:-1] + recall[:-1] + 1e-10)
 
@@ -433,11 +323,7 @@ print(f"\n--- Optimal Threshold Finder ---")
 print(f"Best F1-Score: {best_f1_score:.4f}")
 print(f"Found at Threshold: {best_threshold:.4f}")
 
-# -----------------------
-
 y_pred_best = (y_proba >= best_threshold).astype(int)
-
-# -----------------------
 
 accuracy = accuracy_score(y_test, y_pred_best)
 print(f"\n--- Model Evaluation ---")
@@ -445,18 +331,12 @@ print(f"Test Accuracy: {accuracy:.4f}")
 print(f"Best Iteration: {pipeline.named_steps['model'].best_iteration}")
 print(f"Best Score (Validation AUC): {pipeline.named_steps['model'].best_score:.4f}")
 
-# -----------------------
-
 print(f"\n--- Classification Report (Threshold = {best_threshold:.4f}) ---")
 print(classification_report(y_test, y_pred_best, target_names=['No Default (0)', 'Default (1)']))
-
-# -----------------------
 
 print("--- Confusion Matrix (Threshold = {best_threshold:.4f}) ---")
 cm = confusion_matrix(y_test, y_pred_best)
 print(cm)
-
-# -----------------------
 
 plt.figure(figsize=(6, 4))
 sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
@@ -467,7 +347,6 @@ plt.ylabel('Actual Label')
 plt.xlabel('Predicted Label')
 plt.show()
 plt.show()
-
 
 fn_indices = X_test_woe[(y_pred_best == 0) & (y_test == 1)].index
 
@@ -490,7 +369,6 @@ if not fn_indices.empty:
 else:
     print("Gratulacje, brak pomyłek False Negative do analizy.")
 
-
 fn_indices = X_test_woe[(y_pred_best == 0) & (y_test == 1)].index
 
 if not fn_indices.empty:
@@ -510,13 +388,8 @@ if not fn_indices.empty:
 else:
     print("Brak pomyłek False Negative do analizy.")
 
-
 def expected_calibration_error(y_true, p, n_bins=10):
-    y_true = np.array(y_true)
-    p = np.array(p)
-    
-    if p.ndim > 1:
-        p = p.ravel()
+
     bins = np.linspace(0.0, 1.0, n_bins+1)
     ece = 0.0
     for i in range(n_bins):
@@ -527,46 +400,20 @@ def expected_calibration_error(y_true, p, n_bins=10):
             ece += (mask.sum()/len(p)) * abs(acc - conf)
     return ece
 
-# def reliability_plot(y_true, p, title):
-
-#     frac_pos, mean_pred = calibration_curve(y_true, p, n_bins=10, strategy='uniform')
-    
-#     plt.figure(figsize=(7, 6))
-#     plt.plot([0,1],[0,1], '--', label='Perfekcyjna kalibracja')
-#     plt.plot(mean_pred, frac_pos, marker='o', label='Model XGBoost')
-#     plt.title(title)
-#     plt.xlabel("Średnia prognozowana PD (Pewność)")
-#     plt.ylabel("Rzeczywista częstość zdarzeń (Celność)")
-#     plt.legend()
-#     plt.grid(True)
-#     plt.show()
-
-
-# NOWA WERSJA -----------------------------------------------------------------------------------------------------
-
-
 def reliability_plot(y_true, p, title):
-    frac_pos, mean_pred = calibration_curve(y_true, p, n_bins=10, strategy='quantile')
+
+    frac_pos, mean_pred = calibration_curve(y_true, p, n_bins=10, strategy='uniform')
     
-    plt.figure(figsize=(8, 6))
-    
-    plt.plot([0, 1], [0, 1], 'k:', label='Perfekcyjna kalibracja')
-    
-    plt.plot(mean_pred, frac_pos, marker='o', linewidth=1, label='Model')
-    
-    ax = plt.gca()
-    ax2 = ax.twinx()
-    ax2.hist(p, bins=50, range=(0,1), alpha=0.3, color='gray', label='Rozkład predykcji')
-    ax2.set_yticks([]) # Ukrywamy liczby histogramu, żeby nie zaciemniać
-    
+    plt.figure(figsize=(7, 6))
+    plt.plot([0,1],[0,1], '--', label='Perfekcyjna kalibracja')
+    plt.plot(mean_pred, frac_pos, marker='o', label='Model XGBoost')
     plt.title(title)
-    ax.set_xlabel("Średnia prognozowana PD (Pewność)")
-    ax.set_ylabel("Rzeczywista częstość zdarzeń (Celność)")
-        
-    ax.legend(loc='upper left')
-    ax.grid(True)
+    plt.xlabel("Średnia prognozowana PD (Pewność)")
+    plt.ylabel("Rzeczywista częstość zdarzeń (Celność)")
+    plt.legend()
+    plt.grid(True)
     plt.show()
-    
+
 def hist_predictions(p, title):
 
     plt.figure(figsize=(7, 5))
@@ -646,7 +493,6 @@ for name, p in calibrated_probas.items():
     print(f"  Oczekiwany Błąd Kalibracji (ECE): {ece_post:.4f}")
     print(f"  Wynik Briera (Brier Score):       {brier_post:.4f}")
 
-
 def logit_fn(p, eps=1e-12):
     p = np.clip(p, eps, 1-eps)
     return np.log(p/(1-p))
@@ -677,15 +523,12 @@ def shift_to_target_mean(p, target_mean=0.04, tol=1e-6, max_iter=100):
 
 
 proba_iso_pre_shift = y_proba_test_iso
-proba_iso_pre_shift_arr = np.array(proba_iso_pre_shift).flatten()
 
-print(f"Średnia prognoza (Isotonic, przed shiftem): {proba_iso_pre_shift_arr.mean():.4f}")
-# print(f"Średnia prognoza (Isotonic, przed shiftem): {proba_iso_pre_shift.mean():.4f}")
+print(f"Średnia prognoza (Isotonic, przed shiftem): {proba_iso_pre_shift.mean():.4f}")
 
 target_pd_mean = 0.04
 print(f"Rozpoczynam dostrajanie do średniej = {target_pd_mean}...")
-# proba_iso_4pct = shift_to_target_mean(proba_iso_pre_shift, target_mean=target_pd_mean)
-proba_iso_4pct = shift_to_target_mean(proba_iso_pre_shift_arr, target_mean=target_pd_mean)
+proba_iso_4pct = shift_to_target_mean(proba_iso_pre_shift, target_mean=target_pd_mean)
 
 print("\n--- OCENA (POST-SHIFT 4%) ---")
 print(f"Średnia po dostrojeniu: {proba_iso_4pct.mean():.4f} (Cel: {target_pd_mean})")
@@ -715,12 +558,10 @@ ks_threshold = thresholds[np.argmax(tpr - fpr)]
 print(f"Statystyka KS (Kolmogorov-Smirnov): {ks_statistic:.4f}")
 print(f"Próg, przy którym osiągnięto KS: {ks_threshold:.4f}")
 
-
 COST_TP = 0.0
 COST_FP = 1.0
-COST_FN = 12
+COST_FN = 18.0
 COST_TN = -1.0
-
 
 def cost_for_threshold(y_true, p, thr):
     yhat = (p >= thr).astype(int)
@@ -733,7 +574,7 @@ def cost_for_threshold(y_true, p, thr):
     total_cost = tp*COST_TP + fp*COST_FP + fn*COST_FN + tn*COST_TN
     return total_cost, tp, fp, fn, tn
 
-def sweep_costs(y_true, p, n=1001):
+def sweep_costs(y_true, p, n=201):
     thrs = np.linspace(0,1,n)
     costs, details = [], []
     for t in thrs:
@@ -741,300 +582,61 @@ def sweep_costs(y_true, p, n=1001):
         costs.append(c); details.append((tp,fp,fn,tn))
     return thrs, np.array(costs), details
 
-
-# y_true_data = y_test
-# p_data = proba_iso_4pct 
-
-# print(f"Rozpoczynam analizę kosztów dla {len(p_data)} obserwacji...")
-
-# thrs, costs, details = sweep_costs(y_true_data, p_data, n=201)
-
-# best_idx = int(np.argmin(costs))
-# best_thr_cost = float(thrs[best_idx])
-# best_cost = costs[best_idx]
-# best_tp, best_fp, best_fn, best_tn = details[best_idx]
-
-# plt.figure(figsize=(10, 6))
-# plt.plot(thrs, costs, label='Całkowity koszt biznesowy')
-# plt.axvline(x=best_thr_cost, color='red', linestyle='--', 
-#             label=f'Optymalny próg: {best_thr_cost:.4f}\n(Min. koszt: {best_cost:.2f})')
-# plt.title("Krzywa kosztu vs próg decyzyjny")
-# plt.xlabel("Próg decyzyjny (Odmów, jeśli PD >= Próg)")
-# plt.ylabel("Całkowity koszt (Im niżej, tym lepiej)")
-# plt.legend()
-# plt.grid(True)
-# plt.show()
-
-# print("\n--- Wyniki Optymalnego Progu Biznesowego ---")
-# print(f"Optymalny próg (minimalizujący koszt): {best_thr_cost:.4f}")
-# print(f"Minimalny osiągnięty koszt: {best_cost:.2f}")
-# print("\nMacierz pomyłek dla tego progu:")
-# print(f"  Prawdziwie Pozytywni (TP - Odmówiono złym): {best_tp}")
-# print(f"  Fałszywie Pozytywni (FP - Odmówiono dobrym): {best_fp}  (Koszt: {best_fp * COST_FP})")
-# print(f"  Fałszywie Negatywni (FN - Udzielono złym):  {best_fn}  (Koszt: {best_fn * COST_FN})")
-# print(f"  Prawdziwie Negatywni (TN - Udzielono dobrym): {best_tn}  (Zysk: {best_tn * COST_TN})")
-
-# accept_rate = (best_fn + best_tn) / len(y_true_data)
-# print(f"\nStopa akceptacji (udzielono kredytu): {accept_rate:.2%}")
-
-# # --- PRZYGOTOWANIE DANYCH ---
-# y_true_data = y_test
-# p_data = proba_iso_4pct 
-
-# print(f"Rozpoczynam analizę kosztów dla {len(p_data)} obserwacji...")
-
-# # Obliczamy koszty dla wszystkich progów
-# thrs, costs, details = sweep_costs(y_true_data, p_data, n=201)
-
-# # Znajdujemy najlepszy próg (minimum całkowitego kosztu)
-# best_idx = int(np.argmin(costs))
-# best_thr_cost = float(thrs[best_idx])
-# best_cost = costs[best_idx]
-# best_tp, best_fp, best_fn, best_tn = details[best_idx]
-
-# # --- PRZYGOTOWANIE ROZBICIA NA ZYSKI I STRATY ---
-
-# # Rozpakowujemy listę 'details' do tablic numpy, żeby móc na nich liczyć
-# # structure of details: [(tp, fp, fn, tn), ...]
-# details_arr = np.array(details)
-# fps_arr = details_arr[:, 1]
-# fns_arr = details_arr[:, 2]
-# tns_arr = details_arr[:, 3]
-
-# # 1. Obliczamy STRATY (Losses) -> To są koszty dodatnie
-# # Składa się na nie: Strata na złych (FN * 16) + Utracone okazje (FP * 1)
-# losses_vec = (fns_arr * COST_FN) + (fps_arr * COST_FP)
-
-# # 2. Obliczamy ZYSKI (Gains) -> To są koszty ujemne
-# # Składa się na nie: Zysk z dobrych klientów (TN * -1)
-# # Wynik będzie liczbą ujemną (np. -500), co na wykresie będzie "pod kreską"
-# gains_vec = tns_arr * COST_TN
-
-# # --- RYSOWANIE WYKRESU BIZNESOWEGO ---
-
-# plt.figure(figsize=(12, 7))
-
-# # A. Linia całkowitego wyniku (Netto) - To Twój dotychczasowy "koszt"
-# plt.plot(thrs, costs, color='blue', linewidth=3, label='WYNIK NETTO (Suma)')
-
-# # B. Linia Strat (Czerwona - nad zerem)
-# plt.plot(thrs, losses_vec, color='red', linestyle='--', label='Straty (Kapitał + Utracone okazje)')
-
-# # C. Linia Zysków (Zielona - pod zerem)
-# plt.plot(thrs, gains_vec, color='green', linestyle='--', label='Przychody (Zysk z dobrych klientów)')
-
-# # Linie pomocnicze
-# plt.axvline(x=best_thr_cost, color='black', linestyle=':', label=f'Optimum: {best_thr_cost:.4f}')
-# plt.axhline(y=0, color='gray', linewidth=1) # Linia zero (próg rentowności)
-
-# # Wypełnienie kolorami
-# plt.fill_between(thrs, 0, losses_vec, color='red', alpha=0.1)
-# plt.fill_between(thrs, 0, gains_vec, color='green', alpha=0.1)
-
-# plt.title("Analiza Biznesowa: Zyski vs Straty w zależności od progu")
-# plt.xlabel("Próg decyzyjny (Odmów, jeśli PD >= Próg)")
-# plt.ylabel("Wartość finansowa (< 0 to ZYSK, > 0 to STRATA)")
-# plt.legend(loc='center right')
-# plt.grid(True, alpha=0.5)
-
-# # Opcjonalne skalowanie osi Y dla czytelności
-# plt.ylim(gains_vec.min() * 1.1, losses_vec.max() * 0.5)
-
-# plt.show()
-
-# # --- RAPORT KOŃCOWY ---
-
-# opt_loss_val = (best_fn * COST_FN) + (best_fp * COST_FP)
-# opt_gain_val = (best_tn * abs(COST_TN)) # abs żeby pokazać jako dodatnią kwotę przychodu
-
-# print("\n--- Wyniki Optymalnego Progu Biznesowego ---")
-# print(f"Optymalny próg (minimalizujący koszt): {best_thr_cost:.4f}")
-# print("-" * 40)
-# print(f"1. Przychody (Zysk z dobrych):        {opt_gain_val:.2f}")
-# print(f"2. Straty (Niespłacone + Utracone):  -{opt_loss_val:.2f}")
-# print(f"3. WYNIK NETTO (Koszt całkowity):     {best_cost:.2f}") 
-# # Uwaga: best_cost jest ujemny jeśli zarabiasz, dodatni jeśli tracisz.
-
-# print("\nMacierz pomyłek dla tego progu:")
-# print(f"  TP (Odmowa słuszna):     {best_tp}")
-# print(f"  FP (Odmowa niesłuszna):  {best_fp}  (Koszt: {best_fp * COST_FP})")
-# print(f"  FN (Udzielono złemu):    {best_fn}  (Koszt: {best_fn * COST_FN})")
-# print(f"  TN (Udzielono dobremu):  {best_tn}  (Zysk: {best_tn * abs(COST_TN)})")
-
-# accept_rate = (best_fn + best_tn) / len(y_true_data)
-# print(f"\nStopa akceptacji (udzielono kredytu): {accept_rate:.2%}")
-
-
-
-# NOWA WERSJA --------------------------------------------------------------------------------------------------
-
-
-
 y_true_data = y_test
 p_data = proba_iso_4pct 
 
-print(f"Rozpoczynam analizę zysków i strat dla {len(p_data)} obserwacji...")
+print(f"Rozpoczynam analizę kosztów dla {len(p_data)} obserwacji...")
 
 thrs, costs, details = sweep_costs(y_true_data, p_data, n=201)
 
-details_arr = np.array(details)
-fps_arr = details_arr[:, 1]
-fns_arr = details_arr[:, 2]
-tns_arr = details_arr[:, 3]
-tps_arr = details_arr[:, 0]
-
-revenues_vec = tns_arr * abs(COST_TN)
-
-losses_vec = (fns_arr * COST_FN) + (fps_arr * COST_FP)
-
-net_profit_vec = revenues_vec - losses_vec
-
-max_profit_idx = np.argmax(net_profit_vec) 
-
-best_idx = max_profit_idx 
+best_idx = int(np.argmin(costs))
 best_thr_cost = float(thrs[best_idx])
-best_cost = costs[best_idx] 
-
-max_profit = net_profit_vec[best_idx]
+best_cost = costs[best_idx]
 best_tp, best_fp, best_fn, best_tn = details[best_idx]
 
-
-# --- RYSOWANIE NOWEGO WYKRESU ---
-
-plt.figure(figsize=(12, 7))
-
-# A. Linia Kosztów (Czerwona)
-plt.plot(thrs, losses_vec, color='tomato', linewidth=2, linestyle='--', label='Koszty (Straty + Utracone okazje)')
-
-# B. Linia Przychodów (Zielona)
-plt.plot(thrs, revenues_vec, color='mediumseagreen', linewidth=2, linestyle='--', label='Przychody (Z dobrych klientów)')
-
-# C. Linia Zysku Netto (Niebieska)
-plt.plot(thrs, net_profit_vec, color='navy', linewidth=3, label='WYNIK NETTO (Zysk - Koszty)')
-
-plt.axvline(x=best_thr, color='black', linestyle=':', label=f'Optymalny próg: {best_thr:.4f}')
-plt.scatter(best_thr, max_profit, color='navy', s=100, zorder=5)
-
-plt.axhline(y=0, color='gray', linewidth=1)
-
-plt.fill_between(thrs, 0, net_profit_vec, where=(net_profit_vec >= 0), color='green', alpha=0.1, label='Strefa Zysku')
-plt.fill_between(thrs, 0, net_profit_vec, where=(net_profit_vec < 0), color='red', alpha=0.1, label='Strefa Straty')
-
-plt.title("Symulacja Wyniku Finansowego: Gdzie zarabiamy najwięcej?")
+plt.figure(figsize=(10, 6))
+plt.plot(thrs, costs, label='Całkowity koszt biznesowy')
+plt.axvline(x=best_thr_cost, color='red', linestyle='--', 
+            label=f'Optymalny próg: {best_thr_cost:.4f}\n(Min. koszt: {best_cost:.2f})')
+plt.title("Krzywa kosztu vs próg decyzyjny")
 plt.xlabel("Próg decyzyjny (Odmów, jeśli PD >= Próg)")
-plt.ylabel("Wartość finansowa (PLN / Jednostki)")
-plt.legend(loc='upper right', framealpha=0.9)
-plt.grid(True, alpha=0.5)
-
+plt.ylabel("Całkowity koszt (Im niżej, tym lepiej)")
+plt.legend()
+plt.grid(True)
 plt.show()
 
-# --- RAPORT DLA ZARZĄDU ---
-
-opt_loss_val = losses_vec[best_idx]
-opt_rev_val = revenues_vec[best_idx]
-
-print(f"\n--- WYNIKI SYMULACJI BIZNESOWEJ (Próg: {best_thr:.4f}) ---")
-print(f"1. Przychody (Revenue):         {opt_rev_val:.2f}")
-print(f"2. Koszty (Losses):            -{opt_loss_val:.2f}")
-print("-" * 40)
-print(f"3. ZYSK OPERACYJNY (Profit):    {max_profit:.2f}")
-print("-" * 40)
+print("\n--- Wyniki Optymalnego Progu Biznesowego ---")
+print(f"Optymalny próg (minimalizujący koszt): {best_thr_cost:.4f}")
+print(f"Minimalny osiągnięty koszt: {best_cost:.2f}")
+print("\nMacierz pomyłek dla tego progu:")
+print(f"  Prawdziwie Pozytywni (TP - Odmówiono złym): {best_tp}")
+print(f"  Fałszywie Pozytywni (FP - Odmówiono dobrym): {best_fp}  (Koszt: {best_fp * COST_FP})")
+print(f"  Fałszywie Negatywni (FN - Udzielono złym):  {best_fn}  (Koszt: {best_fn * COST_FN})")
+print(f"  Prawdziwie Negatywni (TN - Udzielono dobrym): {best_tn}  (Zysk: {best_tn * COST_TN})")
 
 accept_rate = (best_fn + best_tn) / len(y_true_data)
-print(f"Stopa akceptacji: {accept_rate:.2%}")
-print(f"Macierz pomyłek: TP={best_tp}, FP={best_fp}, FN={best_fn}, TN={best_tn}")
+print(f"\nStopa akceptacji (udzielono kredytu): {accept_rate:.2%}")
 
+rating_bins = [0.00, 0.045, 0.15, 1.01]
 
-# rating_bins = [0.00, 0.045, 0.15, 1.01]
-
-# rating_labels = [
-#     "A (Akceptacja)", 
-#     "B (Akceptacja lub analiza)", 
-#     "C (Odrzucenie)"
-# ]
-
-# def pd_to_rating(p, bins, labels):
-#     return pd.cut(p, bins=bins, labels=labels, right=False, include_lowest=True)
-
-
-# final_pd = proba_iso_4pct
-
-# ratings = pd_to_rating(final_pd, rating_bins, rating_labels)
-
-# print("--- Liczność klientów w każdej klasie ratingowej ---")
-# tab_licznosci = pd.crosstab(ratings, columns="Liczność klientów")
-# print(tab_licznosci)
-
-
-# validation_df = pd.DataFrame({
-#     'Rating': ratings,
-#     'Predicted_PD': final_pd,
-#     'Actual_Default': y_test
-# })
-
-# rating_summary = validation_df.groupby('Rating').agg(
-#     Liczność=('Rating', 'count'),
-#     Średnie_Prognozowane_PD=('Predicted_PD', 'mean'),
-#     Rzeczywisty_Odsetek_Default=('Actual_Default', 'mean')
-# )
-
-# print("\n--- Walidacja Monotoniczności Ratingów ---")
-# print(rating_summary)
-
-# plt.figure(figsize=(10, 6))
-# rating_summary['Rzeczywisty_Odsetek_Default'].plot(kind='bar', color='salmon')
-# plt.title("Walidacja: Rzeczywisty % Defaultu vs Klasa Ratingowa")
-# plt.xlabel("Klasa Ratingowa")
-# plt.ylabel("Rzeczywisty Odsetek Defaultu (im wyżej, tym gorzej)")
-# plt.grid(axis='y')
-# plt.show()
-
-# decision_table = rating_summary[['Średnie_Prognozowane_PD', 'Rzeczywisty_Odsetek_Default']].copy()
-
-# decision_table['Sugerowana Decyzja Biznesowa'] = [
-#     "Akceptacja Automatyczna", 
-#     "Odrzucenie (lub Analiza Manualna)",
-#     "Odrzucenie Automatyczne"
-# ]
-
-# print("\n--- Finalna Tabela Decyzyjna / Mapa Ratingowa ---")
-
-# decision_table['Średnie_Prognozowane_PD'] = decision_table['Średnie_Prognozowane_PD'].map('{:.2%}'.format)
-# decision_table['Rzeczywisty_Odsetek_Default'] = decision_table['Rzeczywisty_Odsetek_Default'].map('{:.2%}'.format)
-
-# print(decision_table.to_markdown(numalign="left", stralign="left"))
-
-
-
-
-# NOWA WERSJA ------------------------------------------------------------------------------------------------------------------
-
-
-
-threshold_A = np.quantile(final_pd, 0.33)
-threshold_B = np.quantile(final_pd, 0.67)
-
-if threshold_A < 0.0001:
-    threshold_A = np.quantile(final_pd, 0.05)
-
-print(f"Nowy próg dla Klasy A (PD < ...): {threshold_A:.4f}")
-print(f"Nowy próg dla Klasy B (PD < ...): {threshold_B:.4f}")
-
-rating_bins = [0.00, threshold_A, threshold_B, 1.01]
 rating_labels = [
-    "A (Akceptacja - Niskie Ryzyko)", 
-    "B (Analiza - Średnie Ryzyko)", 
-    "C (Odrzucenie - Wysokie Ryzyko)"
+    "A (Akceptacja)", 
+    "B (Akceptacja lub analiza)", 
+    "C (Odrzucenie)"
 ]
 
 def pd_to_rating(p, bins, labels):
     return pd.cut(p, bins=bins, labels=labels, right=False, include_lowest=True)
 
+
+final_pd = proba_iso_4pct
+
 ratings = pd_to_rating(final_pd, rating_bins, rating_labels)
 
-print("\n--- Nowa liczność klientów (Dążymy do rozkładu 25/50/25) ---")
+print("--- Liczność klientów w każdej klasie ratingowej ---")
 tab_licznosci = pd.crosstab(ratings, columns="Liczność klientów")
 print(tab_licznosci)
+
 
 validation_df = pd.DataFrame({
     'Rating': ratings,
@@ -1052,9 +654,26 @@ print("\n--- Walidacja Monotoniczności Ratingów ---")
 print(rating_summary)
 
 plt.figure(figsize=(10, 6))
-rating_summary['Rzeczywisty_Odsetek_Default'].plot(kind='bar', color='cornflowerblue')
-plt.title("Walidacja: Czy ryzyko rośnie wraz z klasą? (Po zmianie rozkładu)")
+rating_summary['Rzeczywisty_Odsetek_Default'].plot(kind='bar', color='salmon')
+plt.title("Walidacja: Rzeczywisty % Defaultu vs Klasa Ratingowa")
 plt.xlabel("Klasa Ratingowa")
-plt.ylabel("Rzeczywisty Odsetek Defaultu")
+plt.ylabel("Rzeczywisty Odsetek Defaultu (im wyżej, tym gorzej)")
 plt.grid(axis='y')
 plt.show()
+
+decision_table = rating_summary[['Średnie_Prognozowane_PD', 'Rzeczywisty_Odsetek_Default']].copy()
+
+decision_table['Sugerowana Decyzja Biznesowa'] = [
+    "Akceptacja Automatyczna", 
+    "Odrzucenie (lub Analiza Manualna)",
+    "Odrzucenie Automatyczne"
+]
+
+print("\n--- Finalna Tabela Decyzyjna / Mapa Ratingowa ---")
+
+decision_table['Średnie_Prognozowane_PD'] = decision_table['Średnie_Prognozowane_PD'].map('{:.2%}'.format)
+decision_table['Rzeczywisty_Odsetek_Default'] = decision_table['Rzeczywisty_Odsetek_Default'].map('{:.2%}'.format)
+
+print(decision_table.to_markdown(numalign="left", stralign="left"))
+
+
