@@ -3,5 +3,11 @@ https://scikit-learn.org/stable/modules/generated/sklearn.impute.SimpleImputer.h
 https://stackoverflow.com/questions/29294983/how-to-calculate-correlation-between-all-columns-and-remove-highly-correlated-on
 https://docs.tibco.com/data-science/GUID-44739B00-E85F-4CE7-8404-24F9B775ADE8.html#:~:text=The%20purpose%20of%20the%20Weight,Weight%2Dof%2DEvidence%20value.
 https://www.listendata.com/2015/03/weight-of-evidence-woe-and-information.html
+https://www.andrewvillazon.com/custom-scikit-learn-transformers/
+https://joblib.readthedocs.io/en/latest/index.html
+https://christophm.github.io/interpretable-ml-book/intro.html
+https://scikit-learn.org/stable/modules/generated/sklearn.calibration.calibration_curve.html
+
+ChatGPT - explaining business metrics used in the model and debugging assistance
 
 
