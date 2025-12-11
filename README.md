@@ -21,7 +21,10 @@
 
 -> to run: (usage: $ .\run_Regression.ps1)
 * run_Regression.ps1 - file that runs the Logistic Regression model
-* run_Regression_analysis.py - raw code from "analiza_regresji.ipynb" without Jupyter markdown
+* run_Regression_analysis.py - raw code from "regression_analysis.ipynb" without Jupyter markdown
 * requirements.txt - file specifying the project's dependencies for both XGBoost and LR
 
 -> bibliography.txt - materials used during project
+
+## Outdated files:
+* Any file with the 'OLD_' prefix was created before the presentation and is considered outdated. They are retained for reference.
