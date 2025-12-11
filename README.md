@@ -15,7 +15,7 @@
 
 ## Logistic Regression Model:
 * zbiór_10.csv - data to analyse
-* analiza_regresji.ipynb - logistic regression model report in Jupyter
+* regression_analysis.ipynb - logistic regression model report in Jupyter
 * best_regression_model.pkl - logistic regression model chosen for further analysis
 * wyniki_analizy.joblib - dictionary containing selected test cases, their indices, and computed SHAP values
 
